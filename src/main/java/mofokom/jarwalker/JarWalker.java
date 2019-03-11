@@ -7,6 +7,7 @@ import java.io.FileInputStream;
 import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -14,7 +15,10 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
 import java.util.Set;
+import java.util.Stack;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.jar.JarEntry;
 import java.util.jar.JarInputStream;
 import org.apache.commons.collections4.map.MultiValueMap;
@@ -39,7 +43,10 @@ public class JarWalker {
     private static boolean verbose;
     private static boolean group;
 
+    private static Queue q;
+
     public static void main(String[] args) throws IOException, InterruptedException {
+        q = new ArrayDeque();
 
         if (args.length == 0) {
             usage();
@@ -84,8 +91,9 @@ public class JarWalker {
                 l.add(new File(s));
             }
         }
-        if(l.isEmpty() && recursive)
+        if (l.isEmpty() && recursive) {
             l.add(new File("."));
+        }
         processFileList(l);
         printResults();
     }
@@ -127,6 +135,7 @@ public class JarWalker {
     }
 
     private static void printEntries(int depth, InputStream is, String name) throws IOException, InterruptedException {
+        q.offer(name);
         final JarInputStream jis = new JarInputStream(is);
         JarEntry entry = null;
         depth++;
@@ -137,7 +146,7 @@ public class JarWalker {
 
                 if (match != null && matches(entry.getName())) {
                     jarContent = entry.getName();
-                    addResult(entry, name);
+                    addResult(entry, q.toString());
                 }
 
                 if (out) {
@@ -184,7 +193,7 @@ public class JarWalker {
                     } else {
                         r.add(entry.getName());
                      */
-                    addResult(entry, name);
+                    addResult(entry, q.toString());
                 } else;
 
                 if (contents || name.equals(jarContent)) {
@@ -199,7 +208,7 @@ public class JarWalker {
                         printSpace(depth);
                         System.err.println("-* " + entry.getName() + " " + entry.getSize());
                     }
-                    addResult(entry, name);
+                    addResult(entry, q.toString());
 
                     if (cat) {
                         printContents(jis);
@@ -209,6 +218,7 @@ public class JarWalker {
 
         }
         jarContent = null;
+        q.remove();
     }
 
     private static void printSpace(int depth) {
@@ -281,8 +291,8 @@ public class JarWalker {
                 });
             }
             System.out.println(r.toString().replaceAll("[\\{\\[,]", "\n"));
-        } else  {
-            System.out.println(results.toString().replaceAll("[\\{\\[,]", "\n"));
+        } else {
+            System.out.println(results.toString());//.replaceAll("[\\{\\[,]", "\n"));
         }
     }
 
@@ -308,4 +318,5 @@ public class JarWalker {
 
         return false;
     }
+
 }
