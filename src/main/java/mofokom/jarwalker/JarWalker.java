@@ -36,7 +36,7 @@ public class JarWalker {
     private static Map<String, Collection<String>> results;
     private static String jarContent;
     private static File parent;
-    private static boolean out;
+    private static boolean debug;
     private static boolean verbose;
     private static boolean group;
 
@@ -73,6 +73,9 @@ public class JarWalker {
                 cat = true;
             }
             if (s.equals("-v")) {
+                if (verbose == true) {
+                    debug = true;
+                }
                 verbose = true;
             }
             if (s.equals("--help")) {
@@ -91,6 +94,11 @@ public class JarWalker {
         if (l.isEmpty() && recursive) {
             l.add(new File("."));
         }
+
+        if (verbose) {
+            System.err.println("looking for " + match.toString());
+        }
+
         processFileList(l);
         printResults();
     }
@@ -146,7 +154,7 @@ public class JarWalker {
                     addResult(entry, q.toString());
                 }
 
-                if (out) {
+                if (debug) {
                     printSpace(depth);
                     System.err.println("-+ " + entry.getName() + " " + entry.getSize());
                 }
@@ -201,7 +209,7 @@ public class JarWalker {
                 }
 
                 if (!match.isEmpty() && matches(entry.getName())) {
-                    if (out) {
+                    if (debug) {
                         printSpace(depth);
                         System.err.println("-* " + entry.getName() + " " + entry.getSize());
                     }
@@ -244,12 +252,14 @@ public class JarWalker {
         System.err.println("-c show contents of jar files");
         System.err.println("-d show duplicates or exit after first");
         System.err.println("-o show contents");
+        System.err.println("-v verbose");
         System.exit(1);
     }
 
     private static boolean matches(String name) {
 
         boolean m = false;
+
         for (String s : match) {
             if (!m) {
                 m = name.matches(s);
