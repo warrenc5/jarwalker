@@ -17,11 +17,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
-import java.util.Stack;
-import java.util.concurrent.ArrayBlockingQueue;
 import java.util.jar.JarEntry;
 import java.util.jar.JarInputStream;
-import org.apache.commons.collections4.map.MultiValueMap;
 
 /**
  * Hello world!
@@ -36,7 +33,7 @@ public class JarWalker {
     private static boolean duplicates;
     private static boolean detectDuplicateJars;
     private static List<String> r;
-    private static MultiValueMap<String, String> results;
+    private static Map<String, Collection<String>> results;
     private static String jarContent;
     private static File parent;
     private static boolean out;
@@ -52,7 +49,7 @@ public class JarWalker {
             usage();
         }
 
-        results = new MultiValueMap<String, String>();
+        results = new HashMap<>();
 
         List<File> l = new ArrayList<File>();
 
@@ -272,10 +269,10 @@ public class JarWalker {
             }
         }
 
-        Collection<String> col = results.getCollection(entry.getName());
+        Collection<String> col = results.getOrDefault(entry.getName(), new HashSet());
 
         if (col == null || !col.contains(name)) {
-            results.put(entry.getName(), name);
+            col.add(name);
         }
     }
 
@@ -284,7 +281,7 @@ public class JarWalker {
         if (group) {
             Map<String, Set<String>> r = new HashMap<String, Set<String>>();
             for (String k : results.keySet()) {
-                Collection<String> col = results.getCollection(k);
+                Collection<String> col = results.getOrDefault(k, new HashSet());
                 col.forEach(v -> {
                     Set<String> s = r.computeIfAbsent(v, (v1) -> new HashSet<String>());
                     s.add(k);
@@ -304,11 +301,11 @@ public class JarWalker {
             return false;
         }
 
-        if (results.getCollection(entry) == null) {
+        if (results.get(entry) == null) {
             return false;
         }
 
-        for (String s : results.getCollection(entry)) {
+        for (String s : results.get(entry)) {
             File e = new File(s);
 
             if (e.exists() && f.getName().equals(e.getName()) && f.length() == e.length() && f.lastModified() == e.lastModified()) {
