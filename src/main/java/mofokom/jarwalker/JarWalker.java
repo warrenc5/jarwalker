@@ -10,7 +10,6 @@ import java.io.InputStream;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -33,12 +32,12 @@ public class JarWalker {
     private static boolean duplicates;
     private static boolean detectDuplicateJars;
     private static List<String> r;
-    private static Map<String, Collection<String>> results;
+    private static Map<String, Set<String>> results;
     private static String jarContent;
     private static File parent;
     private static boolean debug;
     private static boolean verbose;
-    private static boolean group;
+    private static boolean group = true;
 
     private static Queue q;
 
@@ -81,8 +80,8 @@ public class JarWalker {
             if (s.equals("--help")) {
                 usage();
             }
-            if (s.equals("-g")) {
-                group = true;
+            if (s.equals("-f")) {
+                group = false;
             } else if (s.equals("-r")) {
                 recursive = true;
             } else if (s.equals("-m")) {
@@ -248,6 +247,7 @@ public class JarWalker {
         System.err.println("Usage -j [-m regexp] [-c] [-d] [-o] directory|jar|ear|war ...");
         System.err.println("-j detect duplicate jars files");
         System.err.println("-r recursive for directories");
+        System.err.println("-f flat output. don't group by jar file");
         System.err.println("-m regexp to match");
         System.err.println("-c show contents of jar files");
         System.err.println("-d show duplicates or exit after first");
@@ -271,6 +271,7 @@ public class JarWalker {
 
     private static void addResult(JarEntry entry, String name) {
 
+        System.out.println("found " + entry.getRealName() + " " + name);
         if (checkForDuplicateFile(entry, name)) {
             if (detectDuplicateJars) {
                 name = name + "*+";
@@ -279,28 +280,27 @@ public class JarWalker {
             }
         }
 
-        Collection<String> col = results.getOrDefault(entry.getName(), new HashSet());
-
-        if (col == null || !col.contains(name)) {
-            col.add(name);
-        }
+        Set<String> col = results.getOrDefault(entry.getName(), new HashSet());
+        col.add(name);
+        results.put(entry.getName(), col);
     }
 
     private static void printResults() throws IOException {
 
         if (group) {
-            Map<String, Set<String>> r = new HashMap<String, Set<String>>();
+            Map<String, Set<String>> r = new HashMap<>();
             for (String k : results.keySet()) {
-                Collection<String> col = results.getOrDefault(k, new HashSet());
+                Set<String> col = results.getOrDefault(k, new HashSet());
                 col.forEach(v -> {
                     Set<String> s = r.computeIfAbsent(v, (v1) -> new HashSet<String>());
                     s.add(k);
                 });
+
             }
-            System.out.println(r.toString().replaceAll("[\\{\\[,]", "\n"));
-        } else {
-            System.out.println(results.toString());//.replaceAll("[\\{\\[,]", "\n"));
+            results = r;
+
         }
+        System.out.println(results.toString().replaceAll("[\\{\\[,]", "\n").replaceAll("[\\]\\}=]",""));
     }
 
     private static boolean checkForDuplicateFile(JarEntry entry, String name) {
