@@ -106,17 +106,11 @@ public class JarWalker {
         for (File f : list) {
 
             if (f.isDirectory()) {
-                File[] fs = f.listFiles(new FilenameFilter() {
-
-                    public boolean accept(File dir, String name) {
-                        return name.matches(".*\\..ar$") || dir.isDirectory() && recursive;
-                    }
-                });
-                if (fs != null && fs.length > 0) {
-                    processFileList(Arrays.asList(fs));
-                }
+                walk(f);
             } else if (f.getName().matches(".*\\..ar$")) {
-                if (match != null && matches(f.getName())) {
+                if (match.isEmpty() && recursive) {
+                    walk(f);
+                } else if (match != null && matches(f.getName())) {
                     jarContent = f.getName();
                 }
 
@@ -124,8 +118,8 @@ public class JarWalker {
                     if (verbose) {
                         System.err.println("-" + (parent = f.getAbsoluteFile().getParentFile()).getAbsolutePath());
                     }
-
                 }
+
                 if (verbose) {
                     System.err.println("--" + f.getName());
                 }
@@ -134,6 +128,7 @@ public class JarWalker {
                 } catch (Exception ex) {
                     System.err.println(ex.getMessage());
                 }
+
             }
         }
     }
@@ -185,6 +180,12 @@ public class JarWalker {
                     addResult(entry, name);
                 }
 
+                if (contents || (match.isEmpty() || name.equals(jarContent))) {
+                    if (verbose) {
+                        printSpace(depth);
+                        System.out.println(entry.getName() + " " + entry.getSize());
+                    }
+                }
                 depth--;
             } else if (!entry.isDirectory()) {
                 if (duplicates && (match.isEmpty() || matches(entry.getName()))) {
@@ -200,7 +201,7 @@ public class JarWalker {
                     addResult(entry, q.toString());
                 } else;
 
-                if (contents || name.equals(jarContent)) {
+                if (contents || (match.isEmpty() || name.equals(jarContent))) {
                     if (verbose) {
                         printSpace(depth);
                         System.out.println(entry.getName() + " " + entry.getSize());
@@ -271,7 +272,8 @@ public class JarWalker {
 
     private static void addResult(JarEntry entry, String name) {
 
-        System.out.println("found " + entry.getRealName() + " " + name);
+        //FIXME : use realname
+        System.out.println("found " + entry.getName() + " " + name);
         if (checkForDuplicateFile(entry, name)) {
             if (detectDuplicateJars) {
                 name = name + "*+";
@@ -300,7 +302,7 @@ public class JarWalker {
             results = r;
 
         }
-        System.out.println(results.toString().replaceAll("[\\{\\[,]", "\n").replaceAll("[\\]\\}=]",""));
+        System.out.println(results.toString().replaceAll("[\\{\\[,]", "\n").replaceAll("[\\]\\}=]", ""));
     }
 
     private static boolean checkForDuplicateFile(JarEntry entry, String name) {
@@ -324,6 +326,18 @@ public class JarWalker {
         }
 
         return false;
+    }
+
+    private static void walk(File f) throws IOException, InterruptedException {
+        File[] fs = f.listFiles(new FilenameFilter() {
+
+            public boolean accept(File dir, String name) {
+                return name.matches(".*\\..ar$") || dir.isDirectory() && recursive;
+            }
+        });
+        if (fs != null && fs.length > 0) {
+            processFileList(Arrays.asList(fs));
+        }
     }
 
 }
