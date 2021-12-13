@@ -57,7 +57,7 @@ public class JarWalker {
     private static boolean group = true;
     private static Map<JarEntry, InputStream> entries = new HashMap<>();
     private static Map<JarEntry, Long> checkSum = new HashMap<>();
-    private static boolean delete;
+    private static boolean delete = false;
     private static int MAX_BUFFER = 1024 * 1024; //1Mb
 
     private static Map config = new HashMap<>();
@@ -152,15 +152,22 @@ public class JarWalker {
             } else if (f.isDirectory()) {
                 JarWalker.walk(f);
             } else if (f.getName().matches(ARCHIVE)) {
-                showEntry(f);
-
-                if (delete) {
-                    dirtyWalk(f);
+                if (!f.exists()) {
+                    System.err.println("skipping missing file " + f.getPath() + " " + f.getAbsolutePath());
                 } else {
-                    try {
-                        walk(null, new FileInputStream(f), f.getAbsolutePath());
-                    } catch (Exception x) {
-                        System.err.println(x.getMessage());
+                    showEntry(f);
+
+                    if (delete) {
+                        dirtyWalk(f);
+                    } else {
+                        try {
+                            walk(null, new FileInputStream(f), f.getAbsolutePath());
+                        } catch (Exception x) {
+                            System.err.println("err ." + x.getMessage() + " " + f.getAbsolutePath());
+                            if (verbose) {
+                                x.printStackTrace();
+                            }
+                        }
                     }
                 }
 
@@ -451,7 +458,7 @@ public class JarWalker {
             fos.flush();
             fos.close();
         } catch (Exception ex) {
-            System.err.println(ex.getMessage());
+            System.err.println("err: " + ex.getMessage() + " " + f.getAbsolutePath());
             if (verbose) {
                 ex.printStackTrace();
             }
