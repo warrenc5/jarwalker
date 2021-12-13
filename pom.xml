@@ -15,20 +15,22 @@
             <version>3.8.1</version>
             <scope>test</scope>
         </dependency>
-        <!--
-                <dependency>
-                    <groupId>com.fasterxml.jackson.core</groupId>
-                    <artifactId>jackson-databind</artifactId>
-                    <version>2.9.0.pr2</version>
-                    <type>jar</type>
-                </dependency>
-                <dependency>
-                    <groupId>com.fasterxml.jackson.dataformat</groupId>
-                    <artifactId>jackson-dataformat-yaml</artifactId>
-                    <version>2.9.0.pr2</version>
-                    <type>jar</type>
-                </dependency>
-        -->
+        <dependency>
+            <groupId>biz.mofokom</groupId>
+            <artifactId>graalson</artifactId>
+            <version>1.0.4-SNAPSHOT</version>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-api</artifactId>
+            <version>2.15.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <version>2.15.0</version>
+        </dependency>
     </dependencies>
 
     <build>
@@ -40,11 +42,11 @@
                         <goals>
                             <goal>copy-dependencies</goal>
                         </goals>
+                        <configuration>
+                            <scope>runtime</scope>
+                        </configuration>
                     </execution>
                 </executions>
-
-                <configuration>
-                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -65,8 +67,41 @@
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>2.4.3</version>
+                <executions>
+                    <execution>
+                        <id>default</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <shadedArtifactAttached>true</shadedArtifactAttached>
+                            <shadedArtifactId>jarwalker</shadedArtifactId>
+                            <shadedClassifierName>shade</shadedClassifierName>
+                            <artifactSet>
+                                <includes>
+                                    <include>**</include>
+                                </includes>
+                            </artifactSet>
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <manifestEntries>
+                                        <Main-Class>mofokom.jarwalker.JarWalker</Main-Class>
+                                        <Build-Number>${project.version}</Build-Number>
+                                    </manifestEntries>
+                                </transformer>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                            </transformers>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+                
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>2.0.2</version>
                 <configuration>
                     <source>1.8</source>
                     <target>1.8</target>
@@ -77,85 +112,20 @@
 
     <profiles>
         <profile>
-            <id>graal</id>
+            <id>native</id>
             <activation>
                 <activeByDefault>false</activeByDefault>
             </activation>
             <properties>
                 <skipTests>true</skipTests>
-                <rvn.config>${settings}</rvn.config>
             </properties>
             <build>
-
-                <defaultGoal>clean install integration-test</defaultGoal>
+                <defaultGoal>clean install </defaultGoal>
                 <plugins>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-enforcer-plugin</artifactId>
-                        <version>3.0.0-M2</version>
-                        <executions>
-                            <execution>
-                                <id>enforce-versions</id>
-                                <goals>
-                                    <goal>enforce</goal>
-                                </goals>
-                                <configuration>
-                                    <rules>
-                                        <bannedPlugins>
-                                            <!-- will only display a warning but does not fail the build. -->
-                                            <level>WARN</level>
-                                            <excludes>
-                                                <exclude>org.apache.maven.plugins:maven-verifier-plugin</exclude>
-                                            </excludes>
-                                            <message>Please consider using the maven-invoker-plugin
-                                                (http://maven.apache.org/plugins/maven-invoker-plugin/)!</message>
-                                        </bannedPlugins>
-                                        <requireMavenVersion>
-                                            <version>2.0.6</version>
-                                        </requireMavenVersion>
-                                        <requireJavaVersion>
-                                            <version>1.8</version>
-                                        </requireJavaVersion>
-                                        <!-- <requireOS> <family>unix</family> </requireOS> -->
-
-                                    </rules>
-                                </configuration>
-                            </execution>
-                        </executions>
-                    </plugin>
-                    <!--
-                            <plugin>
-                                <groupId>org.codehaus.mojo</groupId>
-                                <artifactId>animal-sniffer-maven-plugin</artifactId>
-                                <version>1.18</version>
-                                <configuration>
-                                    <signature>
-                                        <groupId>org.codehaus.mojo.signature</groupId>
-                                        <artifactId>java18</artifactId>
-                                        <version>1.0</version>
-                                    </signature>
-                                    <includeClasses>
-                                        <includeClass>
-                                            jdk.nashorn.api.scripting.ScriptObjectMirror
-                                        </includeClass>
-                                    </includeClasses>
-                                </configuration>
-                                <executions>
-                                    <execution>
-                                        <id>animal-sniffer</id>
-                                        <phase>validate</phase>
-                                        <goals>
-                                            <goal>check</goal>
-                                        </goals>
-        
-                                    </execution>
-                                </executions>
-                            </plugin>
-                    -->
                     <plugin>
                         <groupId>org.graalvm.nativeimage</groupId>
                         <artifactId>native-image-maven-plugin</artifactId>
-                        <version>20.0.0</version>
+                        <version>21.2.0</version>
                         <executions>
                             <execution>
                                 <goals>

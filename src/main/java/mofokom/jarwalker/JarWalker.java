@@ -1,23 +1,34 @@
 package mofokom.jarwalker;
 
+import au.com.devnull.graalson.GraalsonProvider;
+import au.com.devnull.graalson.JsonObjectBindings;
+import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
+import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Deque;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Queue;
-import java.util.Set;
 import java.util.jar.JarEntry;
 import java.util.jar.JarInputStream;
+import java.util.jar.JarOutputStream;
+import java.util.jar.Manifest;
+import static java.util.stream.Collectors.toList;
+import javax.json.spi.JsonProvider;
 
 /**
  * Hello world!
@@ -25,30 +36,39 @@ import java.util.jar.JarInputStream;
  */
 public class JarWalker {
 
+    private static final String ARCHIVE = ".*\\..ar$";
+    private static Deque<Path> stack = new ArrayDeque<Path>();
     static boolean recursive = false;
     static List<String> match = new ArrayList<String>();
+    static List<String> excludes = new ArrayList<String>();
     private static boolean cat;
     private static boolean contents;
     private static boolean duplicates;
     private static boolean detectDuplicateJars;
     private static List<String> r;
-    private static Map<String, Set<String>> results;
+    private static Map<String, List<List<String>>> results;
     private static String jarContent;
     private static File parent;
     private static boolean debug;
     private static boolean verbose;
     private static boolean group = true;
+    private static Map<JarEntry, InputStream> entries = new HashMap<>();
+    private static Map<JarEntry, Long> checkSum = new HashMap<>();
+    private static boolean delete;
+    private static int MAX_BUFFER = 1024 * 1024; //1Mb
 
-    private static Queue q;
+    private static Map config = new HashMap<>();
 
     public static void main(String[] args) throws IOException, InterruptedException {
-        q = new ArrayDeque();
+        config.put("spaces", Integer.valueOf(4));
+        ((GraalsonProvider) JsonProvider.provider()).getConfigInUse().putAll(config);
 
-        if (args.length == 0) {
+        if (args.length <= 1) {
             usage();
+            return;
         }
 
-        results = new HashMap<>();
+        results = new LinkedHashMap<>();
 
         List<File> l = new ArrayList<File>();
 
@@ -58,178 +78,195 @@ public class JarWalker {
         for (int i = 0; i < args.length; i++) {
 
             String s = args[i];
-            if (s.equals("-j")) {
-                detectDuplicateJars = true;
-            }
-            if (s.equals("-d")) {
-                duplicates = true;
-                r = new ArrayList<String>(10000);
-            }
-            if (s.equals("-c")) {
-                contents = true;
-            }
-            if (s.equals("-o")) {
-                cat = true;
-            }
-            if (s.equals("-v")) {
-                if (verbose == true) {
-                    debug = true;
-                }
-                verbose = true;
-            }
-            if (s.equals("--help")) {
-                usage();
-            }
-            if (s.equals("-f")) {
-                group = false;
-            } else if (s.equals("-r")) {
-                recursive = true;
-            } else if (s.equals("-m")) {
-                match.add("^.*" + args[++i] + ".*$");
-            } else {
-                l.add(new File(s));
+            switch (s) {
+                case "-j":
+                    detectDuplicateJars = true;
+                    /*
+                    } else if (s.equals("-d")) {
+                    duplicates = true;
+                    r = new ArrayList<String>(10000);
+                     */ break;
+                case "-c":
+                    contents = true;
+                    break;
+                case "-o":
+                    cat = true;
+                    break;
+                case "-v":
+                    if (verbose == true) {
+                        debug = true;
+                    }
+                    verbose = true;
+                    break;
+                case "--help":
+                case "-h":
+                case "-?":
+                    usage();
+                    break;
+                case "-f":
+                    group = false;
+                    break;
+                case "-d":
+                    delete = true;
+                    break;
+                case "-r":
+                    recursive = true;
+                    break;
+                case "-x":
+                    excludes.add("^.*" + args[++i] + ".*$");
+                    break;
+                case "-m":
+                    match.add("^.*" + args[++i] + ".*$");
+                    break;
+                default:
+                    l.add(new File(s));
+                    break;
             }
         }
+
         if (l.isEmpty() && recursive) {
             l.add(new File("."));
         }
 
         if (verbose) {
-            System.err.println("looking for " + match.toString());
+            System.err.println(String.format("looking for %s in %s", match.toString(), l.toString()));
         }
 
-        processFileList(l);
+        JarWalker.walk(l);
         printResults();
     }
 
-    private static void processFileList(List<File> list) throws IOException, InterruptedException {
+    private static void walk(List<File> list) throws IOException, InterruptedException {
+        if (debug) {
+            System.err.println("depth " + stack.size());
+        }
         for (File f : list) {
 
-            if (f.isDirectory()) {
-                walk(f);
-            } else if (f.getName().matches(".*\\..ar$")) {
-                if (match.isEmpty() && recursive) {
-                    walk(f);
-                } else if (match != null && matches(f.getName())) {
-                    jarContent = f.getName();
-                }
+            stack.push(Path.of(f.getAbsolutePath()));
 
-                if (!f.getAbsoluteFile().getParentFile().equals(parent)) {
-                    if (verbose) {
-                        System.err.println("-" + (parent = f.getAbsoluteFile().getParentFile()).getAbsolutePath());
-                    }
-                }
+            if (excludes(f.getName())) {
 
-                if (verbose) {
-                    System.err.println("--" + f.getName());
-                }
-                try {
-                    printEntries(0, new FileInputStream(f), f.getAbsolutePath());
-                } catch (Exception ex) {
-                    System.err.println(ex.getMessage());
-                }
+            } else if (f.isDirectory()) {
+                JarWalker.walk(f);
+            } else if (f.getName().matches(ARCHIVE)) {
+                showEntry(f);
+
+                dirtyWalk(f);
 
             }
+            stack.pop();
         }
     }
 
-    private static void printEntries(int depth, InputStream is, String name) throws IOException, InterruptedException {
-        q.offer(name);
+    private static boolean walk(OutputStream os, InputStream is, String path) throws IOException, InterruptedException {
+
         final JarInputStream jis = new JarInputStream(is);
-        JarEntry entry = null;
-        depth++;
-        while ((entry = jis.getNextJarEntry()) != null) {
+        Manifest manifest = jis.getManifest();
+        JarOutputStream jos = null;
 
-            if (entry.getName().matches(".*\\..ar$")) {
-//                if (match == null) {
+        if (manifest == null) {
+            jos = new JarOutputStream(os);
+        } else {
+            jos = new JarOutputStream(os, manifest);
+        }
 
-                if (match != null && matches(entry.getName())) {
-                    jarContent = entry.getName();
-                    addResult(entry, q.toString());
-                }
+        boolean dirty = false;
+        //try (JarOutputStream jos = (manifest == null) ? new JarOutputStream(os) : new JarOutputStream(os, manifest);) {
+        try {
+            JarEntry entry = null;
 
+            while ((entry = jis.getNextJarEntry()) != null) {
                 if (debug) {
-                    printSpace(depth);
-                    System.err.println("-+ " + entry.getName() + " " + entry.getSize());
+                    System.err.println("processing " + entry.toString());
                 }
-                //               }
+                boolean write = true;
 
-                final JarEntry e1 = entry;
+                try {
 
-                ByteArrayOutputStream pos = new ByteArrayOutputStream();
+                    checkSum.put(entry, entry.getCrc());
 
-                //final JarOutputStream jos = new JarOutputStream(pos);
-                //jos.putNextEntry(e1);
-                byte[] buf = new byte[512];
-
-                while (jis.available() > 0) {
-                    int p = jis.read(buf);
-                    if (p > 0) {
-                        pos.write(buf, 0, p);
+                    if (excludes(entry.getName())) {
+                        continue;
                     }
-                    //System.out.println(jis.available() + " " + p);
-                }
-                //jos.close();
 
-                ByteArrayInputStream pis = new ByteArrayInputStream(pos.toByteArray());
-
-                printEntries(++depth, pis, entry.getName());
-
-                if (!match.isEmpty() && matches(entry.getName())) {
-                    jarContent = entry.getName();
-                    addResult(entry, name);
-                }
-
-                if (contents || (match.isEmpty() || name.equals(jarContent))) {
-                    if (verbose) {
-                        printSpace(depth);
-                        System.out.println(entry.getName() + " " + entry.getSize());
-                    }
-                }
-                depth--;
-            } else if (!entry.isDirectory()) {
-                if (duplicates && (match.isEmpty() || matches(entry.getName()))) {
-
-                    /*
-                    if (r.contains(entry.getName())) {
-                        if (out) {
-                            System.out.println("++ " + entry.getName() + " " + entry.getSize());
-                        }
-                    } else {
-                        r.add(entry.getName());
-                     */
-                    addResult(entry, q.toString());
-                } else;
-
-                if (contents || (match.isEmpty() || name.equals(jarContent))) {
-                    if (verbose) {
-                        printSpace(depth);
-                        System.out.println(entry.getName() + " " + entry.getSize());
-                    }
-                }
-
-                if (!match.isEmpty() && matches(entry.getName())) {
                     if (debug) {
-                        printSpace(depth);
-                        System.err.println("-* " + entry.getName() + " " + entry.getSize());
+                        showEntry(entry);
                     }
-                    addResult(entry, q.toString());
 
-                    if (cat) {
-                        printContents(jis);
+                    if (matches(entry.getName())) {
+                        hit(entry);
+
+                        if (delete) {
+                            System.out.println(String.format("deleting %1$s in %2$s", entry.getName(), path));
+                            write = false;
+                            dirty = true;
+                        }
+
+                        if (contents) {
+                            //TODO InputStream njis = readJarEntry(bis);
+                        }
                     }
+
+                    if (entry.isDirectory()) {
+                        continue;
+
+                    } else if (entry.getName().matches(ARCHIVE)) {
+
+                        if (verbose) {
+                            showEntry(entry);
+                        }
+                        stack.push(Path.of(entry.getRealName()));
+                        entry.setLastModifiedTime(FileTime.from(Instant.now()));
+
+                        File temp = File.createTempFile(entry.getName() + ".", ".tmp");
+                        temp.deleteOnExit();
+                        FileOutputStream fos = new FileOutputStream(temp);
+
+                        JarOutputStream njos = new JarOutputStream(fos);
+                        njos.putNextEntry(entry);
+                        System.err.println(String.format("writing %1$s to %2$s", entry.getName(), temp.getAbsolutePath()));
+                        dirty = dirty || walk(njos, jis, entry.getName());
+                        njos.flush();
+                        njos.close();
+
+                        if (dirty) {
+                            JarInputStream njis = new JarInputStream(new FileInputStream(temp));
+                            jos.putNextEntry(njis.getNextJarEntry());
+                            jos.write(njis.readAllBytes());
+                            jos.closeEntry();
+                        }
+                        stack.pop();
+
+                    } else {
+                        if (delete && write) {
+                            copy(entry, path, jis, jos);
+                        }
+
+                        if (cat) {
+                            // entries.put(entry, jis);
+                        }
+                    }
+
+                } finally {
+
                 }
             }
-
+        } finally {
+            jos.close();
         }
-        jarContent = null;
-        q.remove();
+        return dirty;
     }
 
-    private static void printSpace(int depth) {
-        for (int i = 0; i < depth * 2; i++) {
-            System.out.print(' ');
+    static int lastDepth = 0;
+
+    private static String space(int depth) {
+        StringBuilder builder = new StringBuilder();
+        if (depth > 0) {
+            for (int i = 0; i < depth * 4; i++) {
+                builder.append(' ');
+            }
         }
+        return builder.toString();
     }
 
     private static void printContents(JarInputStream jis) throws IOException {
@@ -251,13 +288,23 @@ public class JarWalker {
         System.err.println("-f flat output. don't group by jar file");
         System.err.println("-m regexp to match");
         System.err.println("-c show contents of jar files");
-        System.err.println("-d show duplicates or exit after first");
+        //System.err.println("-d show duplicates or exit after first");
         System.err.println("-o show contents");
-        System.err.println("-v verbose");
+        System.err.println("-x exclude regex");
+        System.err.println("-v verbose, -v -v even more verbose");
+        System.err.println("-h help");
         System.exit(1);
     }
 
+    private static boolean excludes(String name) {
+        return matches(excludes, name);
+    }
+
     private static boolean matches(String name) {
+        return matches(match, name);
+    }
+
+    private static boolean matches(List<String> match, String name) {
 
         boolean m = false;
 
@@ -270,74 +317,155 @@ public class JarWalker {
 
     }
 
-    private static void addResult(JarEntry entry, String name) {
+    private static void addResult(JarEntry entry, List<Path> paths) {
 
-        //FIXME : use realname
-        System.out.println("found " + entry.getName() + " " + name);
-        if (checkForDuplicateFile(entry, name)) {
-            if (detectDuplicateJars) {
-                name = name + "*+";
-            } else {
-                name = name + "**";
-            }
+        if (verbose) {
+            System.out.println("found " + entry.getName() + " " + paths.toString());
         }
 
-        Set<String> col = results.getOrDefault(entry.getName(), new HashSet());
-        col.add(name);
-        results.put(entry.getName(), col);
+        List<List<String>> jars = results.getOrDefault(entry.getName(), new ArrayList());
+        jars.add(paths.stream().filter(p -> p.getFileName().toString().matches(ARCHIVE)).map(f -> f.toString()).collect(toList()));
+        results.put(entry.getName(), jars);
     }
 
     private static void printResults() throws IOException {
 
-        if (group) {
-            Map<String, Set<String>> r = new HashMap<>();
-            for (String k : results.keySet()) {
-                Set<String> col = results.getOrDefault(k, new HashSet());
-                col.forEach(v -> {
-                    Set<String> s = r.computeIfAbsent(v, (v1) -> new HashSet<String>());
-                    s.add(k);
-                });
+        //TODO display result grouped by stack path not match hit
+        /**
+         * if (group) { Map<String, List<String>> r = new HashMap<>();
+         *
+         * for (String k : results.keySet()) { List<Set> col =
+         * results.getOrDefault(k, new ArrayList()); col.forEach(v -> {
+         * Set<String> s = r.computeIfAbsent(v, (v1) -> new HashSet<String>());
+         * s.add(k); });
+         *
+         * }
+         * results = r;
+         *
+         * }*
+         */
+        //System.out.println("results " + results.toString().replaceAll("[\\{\\[,]", "\n").replaceAll("[\\]\\}=]", ""));
+        Map<String, Object> bindings = new LinkedHashMap<>(results);
+        //results.entrySet().stream(v -> {
+        //return v;
+        //});
+        //.collect(Collectors.toMap(Function.identity(), Function.identity()))
+        System.out.println(new JsonObjectBindings(bindings).stringify());
 
-            }
-            results = r;
-
-        }
-        System.out.println(results.toString().replaceAll("[\\{\\[,]", "\n").replaceAll("[\\]\\}=]", ""));
     }
 
-    private static boolean checkForDuplicateFile(JarEntry entry, String name) {
-
-        File f = new File(name);
-
-        if (!f.exists()) {
-            return false;
-        }
-
-        if (results.get(entry) == null) {
-            return false;
-        }
-
-        for (String s : results.get(entry)) {
-            File e = new File(s);
-
-            if (e.exists() && f.getName().equals(e.getName()) && f.length() == e.length() && f.lastModified() == e.lastModified()) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
+    /**
+     * private static boolean checkForDuplicateFile(JarEntry entry, String name)
+     * { File f = new File(name);
+     *
+     * if (!f.exists()) { return false; }
+     *
+     * if (results.get(entry) == null) { return false; }
+     *
+     * for (String s : results.get(entry)) { File e = new File(s);
+     *
+     * if (e.exists() && f.getName().equals(e.getName()) && f.length() ==
+     * e.length() && f.lastModified() == e.lastModified()) { return true; } }
+     *
+     * return false; }
+     *
+     */
     private static void walk(File f) throws IOException, InterruptedException {
         File[] fs = f.listFiles(new FilenameFilter() {
 
             public boolean accept(File dir, String name) {
-                return name.matches(".*\\..ar$") || dir.isDirectory() && recursive;
+                boolean accept = name.matches(ARCHIVE) || (dir.isDirectory() && recursive);
+                if (debug) {
+                    System.err.println(String.format("%1$s, %2$s, accepted: %3$s", dir.getAbsolutePath(), name, accept));
+                }
+                return accept;
             }
         });
         if (fs != null && fs.length > 0) {
-            processFileList(Arrays.asList(fs));
+            walk(Arrays.asList(fs));
         }
     }
 
+    private static InputStream readJarEntry(JarInputStream jis) throws IOException {
+        ByteArrayOutputStream pos = new ByteArrayOutputStream();
+
+        byte[] buf = new byte[512];
+
+        while (jis.available() > 0) {
+            int p = jis.read(buf);
+            if (p > 0) {
+                pos.write(buf, 0, p);
+            }
+        }
+        ByteArrayInputStream pis = new ByteArrayInputStream(pos.toByteArray());
+        return pis;
+    }
+
+    private static void hit(JarEntry entry) {
+        addResult(entry, new ArrayList<>(stack));
+    }
+
+    private static void showEntry(JarEntry entry) {
+        if (entry.getSize() > 0) {
+            System.err.println(String.format("%s %s %s %s", space(stack.size()), entry.getName(), entry.getSize(), entry.getCrc()));
+        }
+    }
+
+    private static void copy(JarEntry entry, String path, JarInputStream jis, JarOutputStream jos) throws IOException {
+
+        BufferedInputStream bis = new BufferedInputStream(jis, MAX_BUFFER);
+
+        if (entry.getSize() > MAX_BUFFER) {
+            System.out.println(String.format("can't write %1$s to %2$s, size is less than MAX_BUFFER, %3$d, %4$d", entry.toString(), path, entry.getSize(), MAX_BUFFER));
+        }
+
+        if (debug) {
+            System.out.println("writing " + entry.toString());
+        }
+        bis.mark(MAX_BUFFER);
+        entry.setLastModifiedTime(FileTime.from(Instant.now()));
+        jos.putNextEntry(entry);
+        jos.write(bis.readAllBytes());
+        jos.flush();
+        jos.closeEntry();
+        bis.reset();
+    }
+
+    private static void showEntry(File f) {
+        if (verbose) {
+            if (!f.getAbsoluteFile().getParentFile().equals(parent)) {
+                System.err.println(String.format("%s %s", space(stack.size() - 1), (parent = f.getAbsoluteFile().getParentFile()).getAbsolutePath()));
+            }
+            System.err.println(String.format("%s %s", space(stack.size()), f.getName()));
+        }
+    }
+
+    private static void dirtyWalk(File f) throws IOException {
+        File temp = File.createTempFile(f.getName() + ".", ".tmp", f.getParentFile());
+        temp.deleteOnExit();
+        FileOutputStream fos = new FileOutputStream(temp);
+        boolean dirty = false;
+        try {
+            dirty = walk(fos, new FileInputStream(f), f.getAbsolutePath());
+
+            fos.flush();
+            fos.close();
+        } catch (Exception ex) {
+            System.err.println(ex.getMessage());
+            if (verbose) {
+                ex.printStackTrace();
+            }
+        } finally {
+            if (dirty) {
+                if (verbose) {
+                    System.err.println(String.format("writing %1$s into %2$s", temp.getName(), f.getAbsolutePath()));
+                }
+
+                FileOutputStream nfos = new FileOutputStream(f);
+                nfos.write(new FileInputStream(temp).readAllBytes());
+                nfos.flush();
+                nfos.close();
+            }
+        }
+    }
 }
