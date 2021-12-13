@@ -18,11 +18,14 @@ import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.jar.JarEntry;
 import java.util.jar.JarInputStream;
 import java.util.jar.JarOutputStream;
@@ -151,7 +154,15 @@ public class JarWalker {
             } else if (f.getName().matches(ARCHIVE)) {
                 showEntry(f);
 
-                dirtyWalk(f);
+                if (delete) {
+                    dirtyWalk(f);
+                } else {
+                    try {
+                        walk(null, new FileInputStream(f), f.getAbsolutePath());
+                    } catch (Exception x) {
+                        System.err.println(x.getMessage());
+                    }
+                }
 
             }
             stack.pop();
@@ -163,11 +174,13 @@ public class JarWalker {
         final JarInputStream jis = new JarInputStream(is);
         Manifest manifest = jis.getManifest();
         JarOutputStream jos = null;
+        if (delete) {
 
-        if (manifest == null) {
-            jos = new JarOutputStream(os);
-        } else {
-            jos = new JarOutputStream(os, manifest);
+            if (manifest == null) {
+                jos = new JarOutputStream(os);
+            } else {
+                jos = new JarOutputStream(os, manifest);
+            }
         }
 
         boolean dirty = false;
@@ -216,24 +229,28 @@ public class JarWalker {
                             showEntry(entry);
                         }
                         stack.push(Path.of(entry.getRealName()));
-                        entry.setLastModifiedTime(FileTime.from(Instant.now()));
 
-                        File temp = File.createTempFile(entry.getName() + ".", ".tmp");
-                        temp.deleteOnExit();
-                        FileOutputStream fos = new FileOutputStream(temp);
+                        if (delete) {
+                            entry.setLastModifiedTime(FileTime.from(Instant.now()));
+                            File temp = File.createTempFile(entry.getName() + ".", ".tmp");
+                            temp.deleteOnExit();
+                            FileOutputStream fos = new FileOutputStream(temp);
 
-                        JarOutputStream njos = new JarOutputStream(fos);
-                        njos.putNextEntry(entry);
-                        System.err.println(String.format("writing %1$s to %2$s", entry.getName(), temp.getAbsolutePath()));
-                        dirty = dirty || walk(njos, jis, entry.getName());
-                        njos.flush();
-                        njos.close();
+                            JarOutputStream njos = new JarOutputStream(fos);
+                            njos.putNextEntry(entry);
+                            dirty = dirty || walk(njos, jis, entry.getName());
+                            njos.flush();
+                            njos.close();
 
-                        if (dirty) {
-                            JarInputStream njis = new JarInputStream(new FileInputStream(temp));
-                            jos.putNextEntry(njis.getNextJarEntry());
-                            jos.write(njis.readAllBytes());
-                            jos.closeEntry();
+                            if (dirty) {
+                                System.err.println(String.format("writing %1$s to %2$s", entry.getName(), temp.getAbsolutePath()));
+                                JarInputStream njis = new JarInputStream(new FileInputStream(temp));
+                                jos.putNextEntry(njis.getNextJarEntry());
+                                jos.write(njis.readAllBytes());
+                                jos.closeEntry();
+                            }
+                        } else {
+                            walk(null, jis, entry.getName());
                         }
                         stack.pop();
 
@@ -252,7 +269,9 @@ public class JarWalker {
                 }
             }
         } finally {
-            jos.close();
+            if (delete && jos != null) {
+                jos.close();
+            }
         }
         return dirty;
     }
@@ -330,26 +349,7 @@ public class JarWalker {
 
     private static void printResults() throws IOException {
 
-        //TODO display result grouped by stack path not match hit
-        /**
-         * if (group) { Map<String, List<String>> r = new HashMap<>();
-         *
-         * for (String k : results.keySet()) { List<Set> col =
-         * results.getOrDefault(k, new ArrayList()); col.forEach(v -> {
-         * Set<String> s = r.computeIfAbsent(v, (v1) -> new HashSet<String>());
-         * s.add(k); });
-         *
-         * }
-         * results = r;
-         *
-         * }*
-         */
-        //System.out.println("results " + results.toString().replaceAll("[\\{\\[,]", "\n").replaceAll("[\\]\\}=]", ""));
-        Map<String, Object> bindings = new LinkedHashMap<>(results);
-        //results.entrySet().stream(v -> {
-        //return v;
-        //});
-        //.collect(Collectors.toMap(Function.identity(), Function.identity()))
+        Map<String, Object> bindings = translateBindings(results);
         System.out.println(new JsonObjectBindings(bindings).stringify());
 
     }
@@ -467,5 +467,26 @@ public class JarWalker {
                 nfos.close();
             }
         }
+    }
+
+    public static Map<String, Object> translateBindings(Map<String, List<List<String>>> source) {
+        //System.out.println("source:" + source.toString());
+        Map<String, Set<String>> results = new LinkedHashMap<>();
+
+        //Set<String> paths = new HashSet<>();
+        source.entrySet().stream().forEachOrdered(e -> {
+
+            e.getValue().stream().map(v -> {
+                Collections.reverse(v);
+                return v.toString();
+            }).forEach(key -> {
+                //System.out.println(key + " " + e.getKey());
+                results.computeIfAbsent(key, v -> new HashSet<>());
+                results.get(key).add(e.getKey());
+            });
+        });
+
+        //System.out.println("results:" + results.toString());
+        return new LinkedHashMap<>(results);
     }
 }

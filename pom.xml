@@ -12,8 +12,9 @@
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
-            <version>3.8.1</version>
+            <version>4.13.1</version>
             <scope>test</scope>
+            <type>jar</type>
         </dependency>
         <dependency>
             <groupId>biz.mofokom</groupId>
@@ -135,7 +136,7 @@
                             </execution>
                         </executions>
                         <configuration>
-                            <buildArgs>--static -H:+ReportExceptionStackTraces -H:ResourceConfigurationResources=native/resources.json -H:JNIConfigurationResources=native/jni.json</buildArgs>
+                            <buildArgs>--language:js --static -H:+ReportExceptionStackTraces -H:ResourceConfigurationResources=native/resources.json -H:JNIConfigurationResources=native/jni.json</buildArgs>
                             <imageName>jarwalker</imageName>
                         </configuration>
                     </plugin>
