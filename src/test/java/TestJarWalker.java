@@ -25,9 +25,9 @@ public class TestJarWalker {
 
         LinkedHashMap<String, Object> ex = new LinkedHashMap<>();
 
-        ex.put("[C B A]", Arrays.asList("1"));
-        ex.put("[C B D]", Arrays.asList("2"));
-        ex.put("[C F E]", Arrays.asList("3", "4"));
+        ex.put("[C, B, A]", Arrays.asList("1"));
+        ex.put("[C, B, D]", Arrays.asList("2"));
+        ex.put("[C, F, E]", Arrays.asList("3", "4"));
 
         Map<String, Object> out = JarWalker.translateBindings(in);
 
