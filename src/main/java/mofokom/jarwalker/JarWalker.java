@@ -143,9 +143,6 @@ public class JarWalker {
             System.err.println(String.format("looking for %s in %s. readOnly: %s", match.toString(), l.toString(), readOnly));
         }
 
-        config.put("spaces", Integer.valueOf(4));
-        //((GraalsonProvider) JsonProvider.provider()).getConfigInUse().putAll(config);
-
         results = new LinkedHashMap<>();
         contentFile = new HashMap<>();
 
@@ -414,11 +411,27 @@ public class JarWalker {
 
     }
 
+    /**
+    private static void printJson(Map<String, Object> results) {
+        JsonObjectBuilder ob = JsonProvider.provider().createObjectBuilder();
+        results.forEach((k, v) -> {
+
+            JsonArrayBuilder ab = JsonProvider.provider().createArrayBuilder();
+            ((Set<String>) v).forEach(ab::add);
+            ob.add(k, ab.build());
+        });
+
+        config.put("spaces", Integer.valueOf(4));
+        JsonWriter writer = JsonProvider.provider().createWriter(System.out);
+        writer.writeObject(ob.build());
+    }
+    */
+
     private static void printResults() throws IOException {
 
-        Map<String, Object> bindings = translateBindings(results);
-        //System.out.println(new JsonObjectBindings(bindings).stringify());
-        System.out.println(bindings.toString());
+        Map<String, Object> groupedResults = translateBindings(results);
+
+        System.out.println(groupedResults);
 
         contentFile.forEach((k, v) -> {
             try {
