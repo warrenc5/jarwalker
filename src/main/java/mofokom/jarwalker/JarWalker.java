@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.attribute.FileTime;
 import java.time.Instant;
 import java.util.ArrayDeque;
@@ -66,7 +67,8 @@ public class JarWalker {
     private static Map config = new HashMap<>();
 
     private static void usage() {
-        System.err.println("Usage -j [-m regexp] [-c] [-d] [-o] directory|jar|ear|war ...");
+
+        System.err.println("Usage java -jar jarwalker.jar -j [-m regexp] [-c] [-d] [-o] directory|jar|ear|war ...");
         System.err.println("-j detect duplicate jars files");
         System.err.println("-r recursive for directories");
         System.err.println("-f flat output. don't group by jar file");
@@ -425,13 +427,22 @@ public class JarWalker {
         JsonWriter writer = JsonProvider.provider().createWriter(System.out);
         writer.writeObject(ob.build());
     }
-    */
-
+     */
     private static void printResults() throws IOException {
 
         Map<String, Object> groupedResults = translateBindings(results);
 
-        System.out.println(groupedResults);
+        System.out.println("{");
+        groupedResults.forEach((k, v) -> {
+            System.out.print(k +":");
+            System.out.println("[");
+            ((Set<String>) v).forEach(v2 -> {
+                System.out.println("    "+v2);
+            });
+            System.out.println("]");
+        });
+        System.out.println("}");
+        //printJson(groupedResults);
 
         contentFile.forEach((k, v) -> {
             try {
@@ -510,15 +521,13 @@ public class JarWalker {
 
             e.getValue().stream().map(v -> {
                 Collections.reverse(v);
-                return v.toString();
+                return toPath(v);
             }).forEach(key -> {
-                //System.out.println(key + " " + e.getKey());
                 results.computeIfAbsent(key, v -> new HashSet<>());
                 results.get(key).add(e.getKey());
             });
         });
 
-        //System.out.println("results:" + results.toString());
         return new LinkedHashMap<>(results);
     }
 
@@ -665,4 +674,16 @@ public class JarWalker {
         }
         return temp;
     }
+
+    private static String toPath(List<String> v) {
+        Path p = null;
+        if (v.size() > 1) {
+
+            p = Paths.get(v.iterator().next(), v.subList(1, v.size()).toArray(new String[v.size() - 1]));
+        } else {
+            p = Paths.get(v.iterator().next());
+        }
+        return p.toString();
+    }
+
 }

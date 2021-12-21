@@ -17,9 +17,31 @@ Implementation-Version: 1.2.14
 
 Recursively scan nested jars looking matching entry
 
->jarwalker ./ -r -m 'log4j.*Jndi'
+>jarwalker ./ -x node_modules -r -m 'log4j.*JndiLookup'
 
 >jarwalker ./ -r -m 'log4j.*SocketServer'
+
+```
+{
+
+    "[/jboss-5.1.0.GA/client/log4j.jar]": [
+
+        "org/apache/log4j/net/SocketServer.class",
+
+        "org/apache/log4j/net/SimpleSocketServer.class"
+
+    ],
+
+    "[jboss-5.1.0.GA/common/lib/log4j.jar]": [
+
+        "org/apache/log4j/net/SocketServer.class",
+
+        "org/apache/log4j/net/SimpleSocketServer.class"
+
+    ]
+
+}
+```
 
 Delete from and rewrite nested jars matching entry
 
