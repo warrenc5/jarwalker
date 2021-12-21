@@ -6,6 +6,15 @@ Print the manifest in the jar file
 
 >jarwalker common/lib/log4j.jar -m MANIFEST -c
 
+```
+Manifest-Version: 1.0
+Implementation-Vendor: JBoss Inc.
+Name: org/apache/log4j/
+Implementation-Vendor: "Apache Software Foundation"
+Implementation-Title: log4j
+Implementation-Version: 1.2.14
+```
+
 Recursively scan nested jars looking matching entry
 
 >jarwalker ./ -r -m 'log4j.*Jndi'
