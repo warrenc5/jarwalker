@@ -251,6 +251,13 @@ public class JarWalker {
 
         boolean dirty = false;
         JarEntry entry = null;
+
+        if (matches("META-INF/MANIFEST") && contents) {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            jis.getManifest().write(baos);
+
+            copyContents(new ByteArrayInputStream(baos.toByteArray()));
+        }
         try {
             while ((entry = jis.getNextJarEntry()) != null) {
                 if (trace) {
@@ -333,7 +340,7 @@ public class JarWalker {
                 }
             }
         } catch (Exception x) {
-            System.err.println(x.getMessage() + " " + path + " " + entry.getRealName() + " " + stack.toString() + " "  + jars.toString());
+            System.err.println(x.getMessage() + " " + path + " " + entry.getRealName() + " " + stack.toString() + " " + jars.toString());
             if (debug) {
                 x.printStackTrace();
             }
@@ -584,7 +591,7 @@ public class JarWalker {
         }
     }
 
-    private static void copyContents(JarInputStream jis) throws IOException {
+    private static void copyContents(InputStream jis) throws IOException {
         File temp = File.createTempFile(stack.peek().getFileName() + ".", ".tmp");
 
         if (!debug) {
