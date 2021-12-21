@@ -16,12 +16,14 @@
             <scope>test</scope>
             <type>jar</type>
         </dependency>
+        <!--
         <dependency>
             <groupId>biz.mofokom</groupId>
             <artifactId>graalson</artifactId>
             <version>1.0.4-SNAPSHOT</version>
             <scope>compile</scope>
         </dependency>
+        -->
     </dependencies>
 
     <build>
@@ -126,7 +128,7 @@
                             </execution>
                         </executions>
                         <configuration>
-                            <buildArgs>--language:js --static -H:+ReportExceptionStackTraces -H:ResourceConfigurationResources=native/resources.json -H:JNIConfigurationResources=native/jni.json</buildArgs>
+                            <buildArgs>--static -H:+ReportExceptionStackTraces -H:ResourceConfigurationResources=native/resources.json -H:JNIConfigurationResources=native/jni.json</buildArgs>
                             <imageName>jarwalker</imageName>
                         </configuration>
                     </plugin>

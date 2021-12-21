@@ -1,7 +1,5 @@
 package mofokom.jarwalker;
 
-import au.com.devnull.graalson.GraalsonProvider;
-import au.com.devnull.graalson.JsonObjectBindings;
 import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -35,7 +33,6 @@ import java.util.jar.JarOutputStream;
 import java.util.jar.Manifest;
 import static java.util.stream.Collectors.toList;
 import java.util.zip.ZipException;
-import javax.json.spi.JsonProvider;
 
 /**
  * Hello world!
@@ -147,7 +144,7 @@ public class JarWalker {
         }
 
         config.put("spaces", Integer.valueOf(4));
-        ((GraalsonProvider) JsonProvider.provider()).getConfigInUse().putAll(config);
+        //((GraalsonProvider) JsonProvider.provider()).getConfigInUse().putAll(config);
 
         results = new LinkedHashMap<>();
         contentFile = new HashMap<>();
@@ -420,7 +417,8 @@ public class JarWalker {
     private static void printResults() throws IOException {
 
         Map<String, Object> bindings = translateBindings(results);
-        System.out.println(new JsonObjectBindings(bindings).stringify());
+        //System.out.println(new JsonObjectBindings(bindings).stringify());
+        System.out.println(bindings.toString());
 
         contentFile.forEach((k, v) -> {
             try {
