@@ -14,6 +14,7 @@ import java.io.OutputStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.FileTime;
+import java.text.NumberFormat;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -65,6 +66,8 @@ public class JarWalker {
     private static int MAX_BUFFER = Integer.valueOf(System.getProperty("maxBuffer", "10485764"));
 
     private static Map config = new HashMap<>();
+    private static int count;
+    private static boolean showProgress;
 
     private static void usage() {
 
@@ -95,7 +98,11 @@ public class JarWalker {
                     } else if (s.equals("-d")) {
                     duplicates = true;
                     r = new ArrayList<String>(10000);
-                     */ break;
+                     */
+                    break;
+                case "-p":
+                    showProgress = true;
+                    break;
                 case "-c":
                     contents = true;
                     break;
@@ -148,43 +155,64 @@ public class JarWalker {
         results = new LinkedHashMap<>();
         contentFile = new HashMap<>();
 
+        if (showProgress) {
+            count = count(l);
+        }
         JarWalker.walk(l);
         printResults();
     }
+
+    static int progress = 0;
+    static String prevProgress;
 
     private static void walk(List<File> list) throws IOException, InterruptedException {
         if (debug) {
             System.err.println("depth " + stack.size());
         }
+
         for (File f : list) {
 
-            stack.push(Path.of(f.getAbsolutePath()).normalize());
+            try {
+                stack.push(Path.of(f.getAbsolutePath()).normalize());
 
-            if (excludes(f.getName())) {
+                if (excludes(f.getName())) {
 
-            } else if (f.isDirectory()) {
-                walk(f);
-            } else if (f.getName().matches(ARCHIVE)) {
-                if (!f.exists()) {
-                    System.err.println("skipping missing file " + f.getPath() + " " + f.getAbsolutePath());
-                } else {
-                    showEntry(f);
+                } else if (f.isDirectory()) {
+                    walk(f);
+                } else if (f.getName().matches(ARCHIVE)) {
 
-                    try {
-                        if (delete) {
-                            dirtyWalk(f);
-                        } else {
-                            walk(null, new FileInputStream(f), f.getAbsolutePath());
+                    if (showProgress) {
+                        progress++;
+
+                        String thisProgress = NumberFormat.getPercentInstance().format((double) progress / (double) count);
+                        if (!thisProgress.equals(prevProgress)) {
+                            System.err.println(NumberFormat.getPercentInstance().format((double) progress / (double) count) + " of " + count);
+                            prevProgress = thisProgress;
                         }
-                    } catch (Exception x) {
-                        System.err.println("err ." + x.getMessage() + " " + f.getAbsolutePath());
-                        if (verbose) {
-                            x.printStackTrace();
+                    }
+                    if (!f.exists()) {
+                        System.err.println("skipping missing file " + f.getPath() + " " + f.getAbsolutePath());
+                    } else {
+                        showEntry(f);
+
+                        try {
+                            if (delete) {
+                                dirtyWalk(f);
+                            } else {
+                                walk(null, new FileInputStream(f), f.getAbsolutePath());
+                            }
+                        } catch (Exception x) {
+                            System.err.println("err ." + x.getMessage() + " " + f.getAbsolutePath());
+                            if (verbose) {
+                                x.printStackTrace();
+                            }
                         }
                     }
                 }
+            } catch (Throwable x) {
+            } finally {
+                stack.pop();
             }
-            stack.pop();
         }
     }
 
@@ -209,6 +237,9 @@ public class JarWalker {
             }
             overwrite = false;
         } finally {
+            if (delete) {
+                jars.pop();
+            }
             if (overwrite) {
 
                 if (readOnly) {
@@ -227,8 +258,7 @@ public class JarWalker {
 
     private static boolean walk(OutputStream os, InputStream is, String path) throws IOException, InterruptedException {
 
-        final BufferedInputStream bis = new BufferedInputStream(is, MAX_BUFFER);
-        final JarInputStream jis = new JarInputStream(is);
+        final JarInputStream jis = new JarInputStream(is, false);
         JarOutputStream jos = null;
         if (delete) {
             jos = create(jis, os);
@@ -294,7 +324,7 @@ public class JarWalker {
                         }
 
                         JarOutputStream jos2 = null;
-                        JarInputStream jis2 = new JarInputStream(jis);
+                        JarInputStream jis2 = jis;//new JarInputStream(jis);
                         try {
                             if (delete) {
                                 File f = JarWalker.createTempFile(entry);
@@ -305,6 +335,8 @@ public class JarWalker {
                             if (debug) {
                                 System.err.println(entry.getName() + " " + jars.peek() + " dirty:" + dirtyEntry);
                             }
+                        } catch (Throwable x) {
+                            System.err.println("err 3 " + x.getMessage() + " " + path + " " + entry.getRealName() + " " + stack.toString() + " " + jars.toString());
                         } finally {
                             stack.pop();
                             if (delete) {
@@ -328,6 +360,7 @@ public class JarWalker {
                                 if (verbose) {
                                     System.err.println(x.getMessage());
                                 }
+                                throw x;
                             }
                         }
                     }
@@ -336,12 +369,13 @@ public class JarWalker {
                 }
             }
         } catch (Exception x) {
-            System.err.println(x.getMessage() + " " + path + " " + entry.getRealName() + " " + stack.toString() + " " + jars.toString());
+            System.err.println(x.getMessage() + " jar: " + path + " entry: " + entry.getRealName() + " path: " + stackToPath() + " temp jars:" + jars.toString() + " size: " + sizeOf(path));
             if (debug) {
                 x.printStackTrace();
             }
         } finally {
             if (delete) {
+                //jars.pop();
                 if (dirty) {
                     if (debug) {
                         System.err.println(path + " is dirty ");
@@ -434,10 +468,10 @@ public class JarWalker {
 
         System.out.println("{");
         groupedResults.forEach((k, v) -> {
-            System.out.print(k +":");
+            System.out.print(k + ":");
             System.out.println("[");
             ((Set<String>) v).forEach(v2 -> {
-                System.out.println("    "+v2);
+                System.out.println("    " + v2);
             });
             System.out.println("]");
         });
@@ -549,8 +583,8 @@ public class JarWalker {
             return;
         }
 
-        int bufSize = (int) (entry.getSize() * 1.2);
-        BufferedInputStream bis = new BufferedInputStream(jis, bufSize <= 0 ? MAX_BUFFER : bufSize);
+        int bufSize = (int) Math.max(Math.max(sizeOf(path), entry.getSize()), MAX_BUFFER);
+        BufferedInputStream bis = new BufferedInputStream(jis, bufSize);
 
         if (debug) {
             System.err.println("writing " + entry.toString());
@@ -566,7 +600,12 @@ public class JarWalker {
         jos.write(buf);
         jos.closeEntry();
         jos.flush();
-        bis.reset();
+        try {
+            bis.reset();
+        } catch (Exception x) {
+
+            System.err.println(x.getMessage() + " jar: " + path + " entry: " + entry.getRealName() + " path: " + stackToPath() + " temp jars:" + jars.toString() + " size: " + sizeOf(path) + " " + bufSize);
+        }
     }
 
     private static void copy(File temp, JarOutputStream jos, JarEntry entry) throws FileNotFoundException, IOException {
@@ -684,6 +723,39 @@ public class JarWalker {
             p = Paths.get(v.iterator().next());
         }
         return p.toString();
+    }
+
+    private static long sizeOf(String path) {
+        File f = new File(path);
+        if (f.exists()) {
+            return f.length();
+        } else {
+            return 0;
+        }
+    }
+
+    private static String stackToPath() {
+        List<String> stack = stackToList();
+        Collections.reverse(stack);
+        return toPath(stack);
+    }
+
+    private static int count(File f) {
+        int count = 0;
+        if (f.isDirectory()) {
+            count += count(Arrays.asList(f.listFiles()));
+        } else if (f.getName().matches(ARCHIVE)) {
+            count++;
+        }
+        return count;
+    }
+
+    private static int count(List<File> list) {
+        int count = 0;
+        for (File f : list) {
+            count += count(f);
+        }
+        return count;
     }
 
 }
