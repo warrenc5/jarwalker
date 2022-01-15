@@ -1,4 +1,5 @@
 
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -13,6 +14,30 @@ import org.junit.Test;
  */
 public class TestJarWalker {
 
+    @Test 
+    public void run() throws IOException, InterruptedException { 
+        JarWalker.main(new String[]{
+            "./test-jars/test.zip",
+            "-m",
+            "LocalStrings",
+            "-p",
+            "-z",
+            "-v"
+        });
+    }
+    
+    @Test 
+    public void runDelete() throws IOException, InterruptedException { 
+        JarWalker.main(new String[]{
+            "./test-jars",
+            "-m",
+            "log4j",
+            "-d",
+            "-d",
+            "-v"
+        });
+    }
+    
     @Test
     public void testTranslate() {
 

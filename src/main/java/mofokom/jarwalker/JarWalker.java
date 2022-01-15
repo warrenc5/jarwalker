@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.HashMap;
@@ -43,6 +44,7 @@ import java.util.zip.ZipException;
 public class JarWalker {
 
     private static final String ARCHIVE = ".*\\..ar$";
+    private static final String ZIP = ".*\\.zip$";
     private static Deque<Path> stack = new ArrayDeque<Path>();
     private static Deque<File> jars = new ArrayDeque<File>();
     static boolean recursive = false;
@@ -68,6 +70,7 @@ public class JarWalker {
     private static Map config = new HashMap<>();
     private static int count;
     private static boolean showProgress;
+    private static boolean zip;
 
     private static void usage() {
 
@@ -80,6 +83,7 @@ public class JarWalker {
         //System.err.println("-d show duplicates or exit after first");
         System.err.println("-d delete matching entries from jars (readOnly) -d -d (overwrite)");
         System.err.println("-x exclude regex");
+        System.err.println("-z include zip files");
         System.err.println("-v verbose, -v -v even more verbose");
         System.err.println("-h help");
         System.exit(1);
@@ -132,6 +136,9 @@ public class JarWalker {
                 case "-r":
                     recursive = true;
                     break;
+                case "-z":
+                    zip = true;
+                    break;
                 case "-x":
                     excludes.add("^.*" + args[++i] + ".*$");
                     break;
@@ -139,17 +146,17 @@ public class JarWalker {
                     match.add("^.*" + args[++i] + ".*$");
                     break;
                 default:
-                    l.add(new File(s));
+                    l.add(new File(s).getAbsoluteFile());
                     break;
             }
         }
 
         if (l.isEmpty() && recursive) {
-            l.add(new File("."));
+            l.add(new File(".").getAbsoluteFile());
         }
 
         if (verbose) {
-            System.err.println(String.format("looking for %s in %s. readOnly: %s", match.toString(), l.toString(), readOnly));
+            System.err.println(String.format("looking for %s in %s readOnly: %s", match.toString(), l.toString(), readOnly));
         }
 
         results = new LinkedHashMap<>();
@@ -179,7 +186,7 @@ public class JarWalker {
 
                 } else if (f.isDirectory()) {
                     walk(f);
-                } else if (f.getName().matches(ARCHIVE)) {
+                } else if (f.getName().matches(ARCHIVE) || (zip && f.getName().matches(ZIP))) {
 
                     if (showProgress) {
                         progress++;
@@ -210,6 +217,7 @@ public class JarWalker {
                     }
                 }
             } catch (Throwable x) {
+                x.printStackTrace(System.err);
             } finally {
                 stack.pop();
             }
@@ -239,18 +247,21 @@ public class JarWalker {
         } finally {
             if (delete) {
                 jars.pop();
-            }
-            if (overwrite) {
+                if (overwrite) {
 
-                if (readOnly) {
-                    if (verbose) {
+                    if (readOnly) {
+                        //if (verbose) {
                         System.err.println(String.format("not writing %1$s into %2$s. Use -d -d to overwrite", temp.getName(), f.getAbsolutePath()));
+                        //}
+                    } else {
+                        if (verbose) {
+                            System.err.println(String.format("writing %1$s into %2$s", temp.getName(), f.getAbsolutePath()));
+                        }
+                        copy(temp, f);
                     }
                 } else {
-                    if (verbose) {
-                        System.err.println(String.format("writing %1$s into %2$s", temp.getName(), f.getAbsolutePath()));
-                    }
-                    copy(temp, f);
+
+                    System.err.println(String.format("not writing %2$s. No matches found", temp.getName(), f.getAbsolutePath()));
                 }
             }
         }
@@ -310,7 +321,7 @@ public class JarWalker {
                         if (delete) {
 
                             if (verbose) {
-                                System.err.println(String.format("deleting %1$s in %2$s", entry.getName(), path));
+                                System.err.println(String.format("deleting %1$s in %2$s", entry.getName(), stackToPath()));
                             }
                             dirtyEntry = true;
                         }
@@ -324,7 +335,7 @@ public class JarWalker {
                         }
 
                         JarOutputStream jos2 = null;
-                        JarInputStream jis2 = jis;//new JarInputStream(jis);
+                        JarInputStream jis2 = new JarInputStream(jis);
                         try {
                             if (delete) {
                                 File f = JarWalker.createTempFile(entry);
@@ -342,6 +353,8 @@ public class JarWalker {
                             if (delete) {
                                 jos2.flush();
                                 jos2.close();
+                                //jis2.closeEntry();
+                                //jis2.close();
 
                                 File f = jars.pop();
 
@@ -352,16 +365,17 @@ public class JarWalker {
                             }
 
                         }
-                    } else {
-                        if (!dirtyEntry) {
-                            try {
-                                copy(entry, path, jis, jos);
-                            } catch (ZipException x) {
-                                if (verbose) {
-                                    System.err.println(x.getMessage());
-                                }
-                                throw x;
+                        continue;
+                    }
+
+                    if (!dirtyEntry) {
+                        try {
+                            copy(entry, path, jis, jos);
+                        } catch (ZipException x) {
+                            if (verbose) {
+                                System.err.println(x.getMessage());
                             }
+                            throw x;
                         }
                     }
                 } finally {
@@ -436,7 +450,7 @@ public class JarWalker {
     private static void addResult(JarEntry entry) {
         //TODO add relative paths only
         if (verbose) {
-            System.err.println("found " + entry.getName() + " " + stack.toString());
+            System.err.println("found " + entry.getName() + " " + stackToPath());
         }
         List<List<String>> jars = results.getOrDefault(entry.getName(), new ArrayList());
         List<String> collect = stackToList();
@@ -467,10 +481,11 @@ public class JarWalker {
         Map<String, Object> groupedResults = translateBindings(results);
 
         System.out.println("{");
+
         groupedResults.forEach((k, v) -> {
             System.out.print(k + ":");
             System.out.println("[");
-            ((Set<String>) v).forEach(v2 -> {
+            ((Collection<String>) v).forEach(v2 -> {
                 System.out.println("    " + v2);
             });
             System.out.println("]");
@@ -549,19 +564,25 @@ public class JarWalker {
     }
 
     public static Map<String, Object> translateBindings(Map<String, List<List<String>>> source) {
-        Map<String, Set<String>> results = new LinkedHashMap<>();
+        Map<String, Collection<String>> results = new LinkedHashMap<>();
 
         source.entrySet().stream().forEachOrdered(e -> {
 
             e.getValue().stream().map(v -> {
                 Collections.reverse(v);
                 return toPath(v);
-            }).forEach(key -> {
+            }).sorted().forEach(key -> {
                 results.computeIfAbsent(key, v -> new HashSet<>());
                 results.get(key).add(e.getKey());
             });
         });
 
+        results.entrySet().stream().forEachOrdered(e -> {
+            ArrayList list = new ArrayList(e.getValue());
+            Collections.sort(list);
+            e.setValue(list);
+        });
+        
         return new LinkedHashMap<>(results);
     }
 
@@ -587,7 +608,7 @@ public class JarWalker {
         BufferedInputStream bis = new BufferedInputStream(jis, bufSize);
 
         if (debug) {
-            System.err.println("writing " + entry.toString());
+            System.err.println("copy " + entry.toString());
         }
 
         bis.mark(bufSize);
@@ -608,14 +629,24 @@ public class JarWalker {
         }
     }
 
+    /**
+    copy a file into a jar using the entry as a template
+
+    @param temp
+    @param jos 
+    @param entry
+    @throws FileNotFoundException
+    @throws IOException 
+     */
     private static void copy(File temp, JarOutputStream jos, JarEntry entry) throws FileNotFoundException, IOException {
         if (verbose) {
-            System.err.println(String.format("writing %1$s to %2$s %3$s", temp.getAbsolutePath(), entry.getName(), temp.length()));
+            System.err.println(String.format("copying %1$s to %2$s in %3$s size %4$s", temp.getAbsolutePath(), entry.getName(), stackToPath(), temp.length()));
         }
         FileInputStream fis = new FileInputStream(temp);
         byte[] buf = fis.readAllBytes();
-        entry.setSize(buf.length);
-        jos.putNextEntry(entry);
+        JarEntry newEntry = new JarEntry(entry);
+        newEntry.setSize(buf.length);
+        jos.putNextEntry(newEntry);
         jos.write(buf);
         jos.closeEntry();
         jos.flush();
@@ -716,12 +747,20 @@ public class JarWalker {
 
     private static String toPath(List<String> v) {
         Path p = null;
-        if (v.size() > 1) {
 
+        for (int i = 0; i < v.size(); i++) {
+            String s = v.get(i);
+            if (s.matches(ARCHIVE) && i < v.size() - 1) {
+                v.set(i, s + "!");
+            }
+        }
+
+        if (v.size() > 1) {
             p = Paths.get(v.iterator().next(), v.subList(1, v.size()).toArray(new String[v.size() - 1]));
         } else {
             p = Paths.get(v.iterator().next());
         }
+
         return p.toString();
     }
 
