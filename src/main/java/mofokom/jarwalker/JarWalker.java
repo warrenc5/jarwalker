@@ -44,7 +44,7 @@ import java.util.zip.ZipException;
 public class JarWalker {
 
     private static final String ARCHIVE = ".*\\..ar$";
-    private static final String ZIP = ".*\\.zip$";
+    private static final String ZIP = ".*\\.(zip|gz)$";
     private static Deque<Path> stack = new ArrayDeque<Path>();
     private static Deque<File> jars = new ArrayDeque<File>();
     static boolean recursive = false;
@@ -146,6 +146,9 @@ public class JarWalker {
                     match.add("^.*" + args[++i] + ".*$");
                     break;
                 default:
+                    if (s.matches(ZIP)) {
+                        zip = true;
+                    }
                     l.add(new File(s).getAbsoluteFile());
                     break;
             }
@@ -582,7 +585,7 @@ public class JarWalker {
             Collections.sort(list);
             e.setValue(list);
         });
-        
+
         return new LinkedHashMap<>(results);
     }
 
