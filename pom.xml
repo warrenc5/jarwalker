@@ -128,7 +128,7 @@
                             </execution>
                         </executions>
                         <configuration>
-                            <buildArgs>--static -H:+ReportExceptionStackTraces -H:ResourceConfigurationResources=native/resources.json -H:JNIConfigurationResources=native/jni.json</buildArgs>
+                            <buildArgs>--static -H:+ReportExceptionStackTraces</buildArgs>
                             <imageName>jarwalker</imageName>
                         </configuration>
                     </plugin>

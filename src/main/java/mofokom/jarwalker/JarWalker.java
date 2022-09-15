@@ -28,7 +28,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
-import java.util.Set;
 import java.util.Stack;
 import java.util.jar.JarEntry;
 import java.util.jar.JarInputStream;
@@ -292,7 +291,7 @@ public class JarWalker {
         boolean dirty = false;
         JarEntry entry = null;
 
-        if (matches("META-INF/MANIFEST") && contents) {
+        if (matches("META-INF/MANIFEST.MF") && contents) {
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             jis.getManifest().write(baos);
 
@@ -331,7 +330,8 @@ public class JarWalker {
                     }
 
                     if (entry.getName().matches(ARCHIVE)) {
-                        stack.push(Path.of(entry.getRealName()).normalize());
+
+                        pushEntryToStack(entry);
 
                         if (verbose) {
                             showEntry(entry);
@@ -546,7 +546,9 @@ public class JarWalker {
         addResult(entry);
 
         if (contents) {
+            pushEntryToStack(entry);
             copyContents(jis);
+            stack.pop();
         }
 
     }
@@ -798,6 +800,10 @@ public class JarWalker {
             count += count(f);
         }
         return count;
+    }
+
+    private static void pushEntryToStack(JarEntry entry) {
+        stack.push(Path.of(entry.getRealName()).normalize());
     }
 
 }
