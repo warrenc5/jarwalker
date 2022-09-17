@@ -11,6 +11,7 @@ import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.channels.Channel;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.FileTime;
@@ -64,6 +65,7 @@ public class JarWalker {
     private static Map<JarEntry, Long> checkSum = new HashMap<>();
     private static boolean readOnly = true;
     private static boolean delete = false;
+    private static boolean update = false;
     private static int MAX_BUFFER = Integer.valueOf(System.getProperty("maxBuffer", "10485764"));
 
     private static Map config = new HashMap<>();
@@ -71,15 +73,22 @@ public class JarWalker {
     private static boolean showProgress;
     private static boolean zip;
 
+    private static Channel inC;
+    private static BufferedInputStream bis;
+    private static int BUFFER_SIZE = 16 * 1024;
+    private static boolean modify = false;
+
     private static void usage() {
 
-        System.err.println("Usage java -jar jarwalker.jar -j [-m regexp] [-c] [-d] [-o] directory|jar|ear|war ...");
-        System.err.println("-j detect duplicate jars files");
-        System.err.println("-r recursive for directories");
+        System.err.println("Usage java -jar jarwalker.jar -j [-m regexp] [-c] [-d] [-o] [scan directory]|jar|ear|war ... < [update file]");
+        System.err.println("-j detect duplicate files in jar");
+        System.err.println("-r recurse scan directories");
         System.err.println("-f flat output. don't group by jar file");
         System.err.println("-m regexp to match");
         System.err.println("-c show contents of jar files");
         //System.err.println("-d show duplicates or exit after first");
+        System.err.println("-w enable write mode");
+        System.err.println("-u update matching entries from standard in (readOnly) -u -u (overwrite)");
         System.err.println("-d delete matching entries from jars (readOnly) -d -d (overwrite)");
         System.err.println("-x exclude regex");
         System.err.println("-z include zip files");
@@ -90,6 +99,7 @@ public class JarWalker {
 
     public static void main(String[] args) throws IOException, InterruptedException {
         List<File> l = new ArrayList<File>();
+        inC = System.inheritedChannel();
 
         for (int i = 0; i < args.length; i++) {
 
@@ -141,6 +151,15 @@ public class JarWalker {
                 case "-x":
                     excludes.add("^.*" + args[++i] + ".*$");
                     break;
+                case "-w":
+                    readOnly = false;
+                    break;
+                case "-u":
+                    if (update) {
+                        readOnly = false;
+                    }
+                    update = true;
+                    break;
                 case "-m":
                     match.add("^.*" + args[++i] + ".*$");
                     break;
@@ -156,6 +175,23 @@ public class JarWalker {
         if (l.isEmpty() && recursive) {
             l.add(new File(".").getAbsoluteFile());
         }
+
+        modify = delete || update;
+        /*
+        if (inC != null && !update) {
+            System.err.println("stdin detected but no update switch, override with -u");
+            System.exit(1);
+        } else if (inC == null && update) {
+            System.err.println("update specified but no stdin detected did you < or | file");
+            System.exit(1);
+        } else if (inC != null && update) {
+            if(!inC.isOpen()){
+                System.err.println("stdin detected but was not opened");
+                System.exit(1);
+            }
+         */
+        bis = new BufferedInputStream(System.in, BUFFER_SIZE);
+        //}
 
         if (verbose) {
             System.err.println(String.format("looking for %s in %s readOnly: %s", match.toString(), l.toString(), readOnly));
@@ -205,7 +241,7 @@ public class JarWalker {
                         showEntry(f);
 
                         try {
-                            if (delete) {
+                            if (update || delete) {
                                 dirtyWalk(f);
                             } else {
                                 walk(null, new FileInputStream(f), f.getAbsolutePath());
@@ -232,28 +268,28 @@ public class JarWalker {
         FileOutputStream fos = new FileOutputStream(temp);
 
         boolean dirty = false;
-        boolean overwrite = false;
+        boolean replace = false;
 
         try {
             dirty = walk(fos, new FileInputStream(f), f.getAbsolutePath());
             fos.flush();
             fos.close();
-            overwrite = dirty;
+            replace = dirty;
         } catch (Exception ex) {
             System.err.println("err: " + ex.getMessage() + " " + f.getAbsolutePath());
 
-            if (verbose) {
+            if (debug) {
                 ex.printStackTrace();
             }
-            overwrite = false;
+            replace = false;
         } finally {
-            if (delete) {
+            if (delete || update) {
                 jars.pop();
-                if (overwrite) {
+                if (replace) {
 
                     if (readOnly) {
                         //if (verbose) {
-                        System.err.println(String.format("not writing %1$s into %2$s. Use -d -d to overwrite", temp.getName(), f.getAbsolutePath()));
+                        System.err.println(String.format("not writing %1$s into %2$s. Use -w to overwrite", temp.getName(), f.getAbsolutePath()));
                         //}
                     } else {
                         if (verbose) {
@@ -273,13 +309,13 @@ public class JarWalker {
 
         final JarInputStream jis = new JarInputStream(is, false);
         JarOutputStream jos = null;
-        if (delete) {
+        if (delete || update) {
             jos = create(jis, os);
         }
         try {
             return walk(jos, jis, path);
         } finally {
-            if (delete) {
+            if (delete || update) {
                 jos.flush();
                 jos.close();
             }
@@ -320,6 +356,12 @@ public class JarWalker {
                     if (matches(entry.getRealName())) {
                         hit(entry, jis);
 
+                        if (update) {
+                            if (verbose) {
+                                System.err.println(String.format("updating %1$s in %2$s", entry.getName(), stackToPath()));
+                            }
+                            dirtyEntry = true;
+                        }
                         if (delete) {
 
                             if (verbose) {
@@ -340,20 +382,21 @@ public class JarWalker {
                         JarOutputStream jos2 = null;
                         JarInputStream jis2 = new JarInputStream(jis);
                         try {
-                            if (delete) {
+                            if (modify) {
                                 File f = JarWalker.createTempFile(entry);
                                 jos2 = create(jis2, new FileOutputStream(f));
                             }
-
                             dirtyEntry = walk(jos2, jis2, entry.getName());
                             if (debug) {
-                                System.err.println(entry.getName() + " " + jars.peek() + " dirty:" + dirtyEntry);
+                                System.err.println("returned from " + entry.getName() + " in " + jars.peek() + " dirty: " + dirtyEntry);
                             }
                         } catch (Throwable x) {
                             System.err.println("err 3 " + x.getMessage() + " " + path + " " + entry.getRealName() + " " + stack.toString() + " " + jars.toString());
+                            if(debug)
+                                x.printStackTrace();
                         } finally {
                             stack.pop();
-                            if (delete) {
+                            if (modify) {
                                 jos2.flush();
                                 jos2.close();
                                 //jis2.closeEntry();
@@ -370,8 +413,26 @@ public class JarWalker {
                         }
                         continue;
                     }
+                    if (dirtyEntry && update) {
+                        try {
+                            if (bis.available() > 0) {
+                                bis.mark(BUFFER_SIZE);
+                                copy(entry, bis, path, jis, jos);
+                            } else {
+                                System.err.println("writing " + entry.getRealName() + " in " + path + " but no stdin available <");
+                                System.exit(2);
+                            }
+                        } catch (ZipException x) {
+                            if (verbose) {
+                                System.err.println(x.getMessage());
+                            }
+                            throw x;
+                        } finally {
+                            bis.reset();
+                        }
+                    } else if (dirtyEntry && delete) {
 
-                    if (!dirtyEntry) {
+                    } else {
                         try {
                             copy(entry, path, jis, jos);
                         } catch (ZipException x) {
@@ -391,7 +452,7 @@ public class JarWalker {
                 x.printStackTrace();
             }
         } finally {
-            if (delete) {
+            if (update || delete) {
                 //jars.pop();
                 if (dirty) {
                     if (debug) {
@@ -612,26 +673,32 @@ public class JarWalker {
         int bufSize = (int) Math.max(Math.max(sizeOf(path), entry.getSize()), MAX_BUFFER);
         BufferedInputStream bis = new BufferedInputStream(jis, bufSize);
 
-        if (debug) {
+        if (trace) {
             System.err.println("copy " + entry.toString());
         }
 
         bis.mark(bufSize);
-        entry.setLastModifiedTime(FileTime.from(Instant.now()));
-        jos.putNextEntry(entry);
-        byte[] buf = bis.readAllBytes();
-        if (entry.getSize() != buf.length) {
-            System.err.println("1." + entry.getName() + " wrong");
-        }
-        jos.write(buf);
-        jos.closeEntry();
-        jos.flush();
+        copy(entry, bis, path, jis, jos);
+
         try {
             bis.reset();
         } catch (Exception x) {
-
             System.err.println(x.getMessage() + " jar: " + path + " entry: " + entry.getRealName() + " path: " + stackToPath() + " temp jars:" + jars.toString() + " size: " + sizeOf(path) + " " + bufSize);
         }
+    }
+
+    private static void copy(JarEntry entry, InputStream in, String path, JarInputStream jis, JarOutputStream jos) throws IOException {
+        entry.setTime(FileTime.from(Instant.now()).toMillis());
+
+        byte[] buf = in.readAllBytes();
+        if (entry.getSize() != buf.length) {
+            System.err.println("1." + entry.getName() + " wrong -- adjusting to " + buf.length);
+            entry.setSize(buf.length);
+        }
+        jos.putNextEntry(entry);
+        jos.write(buf);
+        jos.closeEntry();
+        jos.flush();
     }
 
     /**
@@ -651,6 +718,7 @@ public class JarWalker {
         byte[] buf = fis.readAllBytes();
         JarEntry newEntry = new JarEntry(entry);
         newEntry.setSize(buf.length);
+        newEntry.setCompressedSize(-1);
         jos.putNextEntry(newEntry);
         jos.write(buf);
         jos.closeEntry();
@@ -675,7 +743,7 @@ public class JarWalker {
     }
 
     private static JarOutputStream create(JarInputStream jis, OutputStream os) throws IOException {
-        if (!delete) {
+        if (!delete && !update) {
             return null;
         }
         final Manifest manifest = jis.getManifest();
@@ -687,10 +755,12 @@ public class JarWalker {
     }
 
     private static void copyContents(InputStream jis) throws IOException {
-        File temp = File.createTempFile(stack.peek().getFileName() + ".", ".tmp");
+        File temp = debug ? new File("./tmp", stack.peek().getFileName().toString()) : File.createTempFile(stack.peek().getFileName() + ".", ".tmp");
 
         if (!debug) {
             temp.deleteOnExit();
+        } else {
+            System.err.println("created " + temp.getAbsolutePath());
         }
 
         FileOutputStream fos = new FileOutputStream(temp);
@@ -739,12 +809,13 @@ public class JarWalker {
     }
 
     private static File createTempFile(String name) throws IOException {
-        File temp = File.createTempFile(name + ".", ".tmp");
+
+        File temp = debug ? new File("./tmp", name) : File.createTempFile(name + ".", ".tmp");
+        temp.getParentFile().mkdirs();
         jars.push(temp);
         if (debug) {
-            System.err.println("pushed " + temp.getAbsolutePath());
-        }
-        if (!debug) {
+            System.err.println("pushed temp file " + temp.getAbsolutePath());
+        } else {
             temp.deleteOnExit();
         }
         return temp;
