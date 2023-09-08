@@ -37,6 +37,17 @@ public class TestJarWalker {
             "-v"
         });
     }
+
+    @Test 
+    public void runUpdate() throws IOException, InterruptedException { 
+        JarWalker.main(new String[]{
+            "./test-jars",
+            "-m",
+            "test-file.txt",
+            "-u",
+            "-v"
+        });
+    }
     
     @Test
     public void testTranslate() {

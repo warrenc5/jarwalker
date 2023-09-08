@@ -194,7 +194,7 @@ public class JarWalker {
         //}
 
         if (verbose) {
-            System.err.println(String.format("looking for %s in %s readOnly: %s", match.toString(), l.toString(), readOnly));
+            System.err.println(String.format("looking for %s in %s readOnly: %s, zips: %s", match.toString(), l.toString(), readOnly, zip));
         }
 
         results = new LinkedHashMap<>();
@@ -225,6 +225,9 @@ public class JarWalker {
                 } else if (f.isDirectory()) {
                     walk(f);
                 } else if (f.getName().matches(ARCHIVE) || (zip && f.getName().matches(ZIP))) {
+                    if (trace) {
+                        System.err.println(String.format("matched archive %s", f.getName()));
+                    }
 
                     if (showProgress) {
                         progress++;
@@ -307,6 +310,10 @@ public class JarWalker {
 
     private static boolean walk(OutputStream os, InputStream is, String path) throws IOException, InterruptedException {
 
+        if (trace) {
+            System.err.println(String.format("walking into path %s", path));
+        }
+
         final JarInputStream jis = new JarInputStream(is, false);
         JarOutputStream jos = null;
         if (delete || update) {
@@ -371,7 +378,7 @@ public class JarWalker {
                         }
                     }
 
-                    if (entry.getName().matches(ARCHIVE)) {
+                    if (entry.getName().matches(ARCHIVE) || (zip && entry.getName().matches(ZIP))) {
 
                         pushEntryToStack(entry);
 
@@ -392,8 +399,9 @@ public class JarWalker {
                             }
                         } catch (Throwable x) {
                             System.err.println("err 3 " + x.getMessage() + " " + path + " " + entry.getRealName() + " " + stack.toString() + " " + jars.toString());
-                            if(debug)
+                            if (debug) {
                                 x.printStackTrace();
+                            }
                         } finally {
                             stack.pop();
                             if (modify) {
@@ -468,7 +476,7 @@ public class JarWalker {
         File[] fs = f.listFiles(new FilenameFilter() {
 
             public boolean accept(File dir, String name) {
-                boolean accept = name.matches(ARCHIVE) || (dir.isDirectory() && recursive);
+                boolean accept = name.matches(ARCHIVE) || (zip && name.matches(ZIP)) || (dir.isDirectory() && recursive);
                 if (debug) {
                     System.err.println(String.format("%1$s, %2$s, accepted: %3$s", dir.getAbsolutePath(), name, accept));
                 }
