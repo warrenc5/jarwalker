@@ -38,7 +38,8 @@ import static java.util.stream.Collectors.toList;
 import java.util.zip.ZipException;
 
 /**
- * Hello world!
+ * TODO: allow base to be std in
+ * for example docker export (tar format)
  *
  */
 public class JarWalker {
@@ -72,6 +73,7 @@ public class JarWalker {
     private static int count;
     private static boolean showProgress;
     private static boolean zip;
+    private static boolean stdin;
 
     private static Channel inC;
     private static BufferedInputStream bis;
@@ -80,11 +82,12 @@ public class JarWalker {
 
     private static void usage() {
 
-        System.err.println("Usage java -jar jarwalker.jar -j [-m regexp] [-c] [-d] [-o] [scan directory]|jar|ear|war ... < [update file]");
+        System.err.println("Usage java -jar jarwalker.jar -j [-mf] [-m regexp] [-c] [-d] [-o] [scan directory]|jar|ear|war ... < [update file]");
         System.err.println("-j detect duplicate files in jar");
         System.err.println("-r recurse scan directories");
         System.err.println("-f flat output. don't group by jar file");
         System.err.println("-m regexp to match");
+        System.err.println("-mf match META-INF/MANIFEST.MF");
         System.err.println("-c show contents of jar files");
         //System.err.println("-d show duplicates or exit after first");
         System.err.println("-w enable write mode");
@@ -160,9 +163,14 @@ public class JarWalker {
                     }
                     update = true;
                     break;
+                case "-mf":
+                    match.add("^META-INF/MANIFEST.MF$");
+                    break;
                 case "-m":
                     match.add("^.*" + args[++i] + ".*$");
                     break;
+                case "-":
+                    stdin = true;
                 default:
                     if (s.matches(ZIP)) {
                         zip = true;
@@ -203,7 +211,14 @@ public class JarWalker {
         if (showProgress) {
             count = count(l);
         }
-        JarWalker.walk(l);
+
+        if (stdin || inC != null) {
+            stack.push(Path.of("<stdin>"));
+            System.err.println("using stdin");
+            JarWalker.walk(null, bis, "<stdin>");
+        } else {
+            JarWalker.walk(l);
+        }
         printResults();
     }
 
@@ -238,6 +253,7 @@ public class JarWalker {
                             prevProgress = thisProgress;
                         }
                     }
+
                     if (!f.exists()) {
                         System.err.println("skipping missing file " + f.getPath() + " " + f.getAbsolutePath());
                     } else {
